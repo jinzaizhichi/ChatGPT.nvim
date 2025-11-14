@@ -146,103 +146,40 @@ local splitCommandIntoTable = function(command)
   return cmd
 end
 
-local function loadConfigFromCommand(command, optionName, callback, defaultValue)
+local loadAsyncApiKey = function(command)
   local cmd = splitCommandIntoTable(command)
-  job
-    :new({
-      command = cmd[1],
-      args = vim.list_slice(cmd, 2, #cmd),
-      on_exit = function(j, exit_code)
-        if exit_code ~= 0 then
-          logger.warn("Config '" .. optionName .. "' did not return a value when executed")
-          return
-        end
-        local value = j:result()[1]:gsub("%s+$", "")
-        if value ~= nil and value ~= "" then
-          callback(value)
-        elseif defaultValue ~= nil and defaultValue ~= "" then
-          callback(defaultValue)
-        end
-      end,
-    })
-    :start()
+  -- API KEY
+  job:new({
+    command = cmd[1],
+    args = vim.list_slice(cmd, 2, #cmd),
+    on_exit = function(j, exit_code)
+      if exit_code ~= 0 then
+        logger.warn("Config 'api_key_cmd' did not return a value when executed")
+        return
+      end
+      Api.OPENAI_API_KEY = j:result()[1]:gsub("%s+$", "")
+    end,
+  }):start()
 end
 
-local function loadConfigFromEnv(envName, configName)
-  local variable = os.getenv(envName)
-  if not variable then
-    return
-  end
-  Api[configName] = variable:gsub("%s+$", "")
-end
-
-local function loadApiConfig(envName, configName, optionName, callback, defaultValue)
-  loadConfigFromEnv(envName, configName)
-  if not Api[configName] then
-    if Config.options[optionName] ~= nil and Config.options[optionName] ~= "" then
-      loadConfigFromCommand(Config.options[optionName], optionName, callback, defaultValue)
+function Api.setup()
+  Api.OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+  if not Api.OPENAI_API_KEY then
+    if Config.options.api_key_cmd ~= nil and Config.options.api_key_cmd ~= "" then
+      Api.OPENAI_API_KEY = vim.fn.system(Config.options.api_key_cmd)
+      if not Api.OPENAI_API_KEY then
+        logger.warn("Config 'api_key_cmd' did not return a value when executed")
+        return
+      end
+    elseif Config.options.async_api_key_cmd ~= nil and Config.options.async_api_key_cmd ~= "" then
+      loadAsyncApiKey(Config.options.async_api_key_cmd)
     else
       logger.warn(envName .. " environment variable not set")
       return
     end
   end
-end
-
-function Api.setup()
-  loadApiConfig("OPENAI_API_HOST", "OPENAI_API_HOST", "api_host_cmd", function(value)
-    Api.OPENAI_API_HOST = value
-    Api.COMPLETIONS_URL = "https://" .. Api.OPENAI_API_HOST .. "/v1/completions"
-    Api.CHAT_COMPLETIONS_URL = "https://" .. Api.OPENAI_API_HOST .. "/v1/chat/completions"
-    Api.EDITS_URL = "https://" .. Api.OPENAI_API_HOST .. "/v1/edits"
-  end, "api.openai.com")
-
-  loadApiConfig("OPENAI_API_KEY", "OPENAI_API_KEY", "api_key_cmd", function(value)
-    Api.OPENAI_API_KEY = value
-  end)
-end
-
-function Api.exec(cmd, args, on_stdout_chunk, on_complete)
-  local stdout = vim.loop.new_pipe()
-  local stderr = vim.loop.new_pipe()
-  local stderr_chunks = {}
-
-  local function on_stdout_read(_, chunk)
-    if chunk then
-      vim.schedule(function()
-        on_stdout_chunk(chunk)
-      end)
-    end
-  end
-
-  local function on_stderr_read(_, chunk)
-    if chunk then
-      table.insert(stderr_chunks, chunk)
-    end
-  end
-
-  local handle, err
-  handle, err = vim.loop.spawn(cmd, {
-    args = args,
-    stdio = { nil, stdout, stderr },
-  }, function(code)
-    stdout:close()
-    stderr:close()
-    if handle ~= nil then
-      handle:close()
-    end
-
-    vim.schedule(function()
-      if code ~= 0 then
-        on_complete(vim.trim(table.concat(stderr_chunks, "")))
-      end
-    end)
-  end)
-
-  if not handle then
-    on_complete(cmd .. " could not be started: " .. err)
-  else
-    stdout:read_start(on_stdout_read)
-    stderr:read_start(on_stderr_read)
+  if Api.OPENAI_API_KEY ~=nil and Api.OPENAI_API_KEY ~= "" then
+    Api.OPENAI_API_KEY = Api.OPENAI_API_KEY:gsub("%s+$", "")
   end
 end
 

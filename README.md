@@ -68,6 +68,7 @@ use({
 ```lua
 {
     api_key_cmd = nil,
+    async_api_key_cmd = nil,
     yank_register = "+",
     edit_with_instructions = {
       diff = false,
@@ -235,6 +236,15 @@ API key
 local home = vim.fn.expand("$HOME")
 require("chatgpt").setup({
     api_key_cmd = "gpg --decrypt " .. home .. "/secret.txt.gpg"
+})
+```
+
+alternatively, you can choose to run this command asynchronously by using the
+`async_api_key_cmd` option instead.
+
+```lua
+require("chatgpt").setup({
+    async_api_key_cmd = "op read op://private/OpenAI/credential --no-newline"
 })
 ```
 
